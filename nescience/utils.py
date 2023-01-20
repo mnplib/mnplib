@@ -194,3 +194,38 @@ def optimal_code_length(x1, numeric1, x2=None, numeric2=None, x3=None, numeric3=
     ldm = np.sum(count * ( - np.log2(count / len(x1) )))
     
     return ldm
+
+
+def whereIsTheX(self, ts, size=None):
+    """
+    Transfrom a unidimensional time series ts into an (X, y) dataset,
+    so that regression algorithms can be applied.
+
+    Parameters
+    ----------
+    y    : array-like, shape (n_samples), the time series values.
+    size : size of the X, that is, number of attributes
+
+    Returns
+    -------
+    X : array-like, shape (n_samples, n_features)
+    y : array-like, shape (n_samples)
+    """
+
+    X = list()
+    y = list()
+
+    lts = len(ts)
+        
+    # Compute a default value for 'size' if None
+    if size == None:
+        size = int(np.sqrt(lts))
+
+    for i in np.arange(lts - size):
+        X.append(ts[i:i+size])
+        y.append(ts[i+size])
+            
+    X = np.array(X)
+    y = np.array(y)
+        
+    return X, y

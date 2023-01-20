@@ -11,13 +11,18 @@ with the minimum nescience principle
 @version:   0.8
 """
 
-from .utils import optimal_code_length
-from .utils import discretize_vector
+# from .utils import optimal_code_length
+# from .utils import discretize_vector
+
+from utils import optimal_code_length
+from utils import discretize_vector
+
+# TODO: fix discretize_vector(values, n_bins=bins)
 
 import numpy  as np
 
 from sklearn.base  import BaseEstimator
-from sklearn.utils import check_X_y
+from sklearn.utils import column_or_1d
 
 # Compressors
 
@@ -41,11 +46,8 @@ from sklearn.svm            import LinearSVR
 from sklearn.neural_network import MLPRegressor
 
 # Supported time series
-# 
-# - Autoregression
-# - Moving Average
-# - Simple Exponential Smoothing
 
+from  statsmodels.tsa.statespace.mlemodel import MLEResultsWrapper
 
 class Surfeit(BaseEstimator):
 
@@ -85,23 +87,21 @@ class Surfeit(BaseEstimator):
         return None
     
 
-    def fit(self, X, y):
+    def fit(self, y):
         """Initialize the Surfeit class with dataset
         
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            Sample vectors from which models have been trained.
-            
         y : array-like, shape (n_samples)
             The target values (class labels) as integers or strings.
+            len(str(y)) is a measure of the worst posible model.
             
         Returns
         -------
         self
         """
         
-        self.X_, self.y_ = check_X_y(X, y, dtype=None)
+        self.y_     = column_or_1d(y)
         self.len_y_ = optimal_code_length(x1=self.y_, numeric1=self.y_isnumeric)
         
         return self
@@ -129,9 +129,7 @@ class Surfeit(BaseEstimator):
             MLPRegressor
 
         Supported time series
-            Autoregression
-            Moving Average
-            Simple Exponential Smoothing
+            MLEModel
             
         Returns
         -------
@@ -156,6 +154,8 @@ class Surfeit(BaseEstimator):
             model_str = self._LinearSVR(model)
         elif isinstance(model, MLPRegressor):
             model_str = self._MLPRegressor(model)
+        elif isinstance(model, MLEResultsWrapper):
+            model_str = self._StateSpace(model)
         else:
             # Rise exception
             raise NotImplementedError('Model {!r} not supported'
@@ -462,7 +462,9 @@ class Surfeit(BaseEstimator):
             
             string = string + "    gamma = "
             if estimator.gamma == 'scale':
-                string = string + str(1/(len(support_vectors[0])*np.var(self.X_)))
+                # TODO: Surfeit should not depend on X values
+                # string = string + str(1/(len(support_vectors[0])*np.var(self.X_)))
+                string = string
             elif estimator.gamma == 'auto':
                 string = string + str(1/len(support_vectors[0]))
             else:
@@ -560,7 +562,9 @@ class Surfeit(BaseEstimator):
             
             string = string + "    gamma = "
             if estimator.gamma == 'scale':
-                string = string + str(1/(len(support_vectors[0])*np.var(self.X_)))
+                # TODO: Surfeit should not depend on X values
+                # string = string + str(1/(len(support_vectors[0])*np.var(self.X_)))
+                string = string
             elif estimator.gamma == 'auto':
                 string = string + str(1/len(support_vectors[0]))
             else:
@@ -1054,3 +1058,67 @@ class Surfeit(BaseEstimator):
         string = string + "    return prediction\n"
 
         return string
+
+    """
+    Convert a StateSpace time series model into a string
+    """
+    def _StateSpace(self, estimator):
+
+        # Discretize the parameters of the model
+        values = np.array(estimator.params)
+        bins   = int(np.sqrt(values.shape[0]))
+        params = discretize_vector(values, n_bins=bins)
+                
+        # Header, as parameters we assume as given
+        # the number of hidden states
+        # and the states computed in t-1
+        string = "def StateSpace(k_states, p_alpha):\n"
+ 
+        # Discretized params
+        string = string + "    params = " + str(params) + "\n"
+
+        # Observations covariance H
+        string = string + "    H = params[0]\n"
+
+        # Design vector Z
+        string = string + "    design = np.array(shape=(k_states))\n"
+        string = string + "    idx = 1\n"
+        string = string + "    for i in np.arange(k_states):\n"
+        string = string + "        design[i] = params[idx]\n"
+        string = string + "        idx = idx + 1\n"
+
+        # Transition matrix T
+        string = string + "    T = np.zeros(shape=(k_states, k_states))\n"
+        string = string + "    for i in np.arange(self.k_states):\n"
+        string = string + "        for j in np.arange(self.k_states):\n"
+        string = string + "            T[i, j] = params[idx]\n"
+        string = string + "            idx = idx + 1\n"
+
+        # Selection matrix R is the identity matrix
+        # State covariance matrix Q is a diagonal matrix
+        # Product is represented here as disturbance vector
+        string = string + "    dist = np.zeros(shape=(k_states))\n"
+        string = string + "    for i in arange(k_states):\n"
+        string = string + "        dist[i] = params[idx]\n"
+        string = string + "        idx = idx + 1\n"
+
+        # The state space model is given by
+        # alpha_t = T alpha_t-1 + rho eta
+        # y_hat   = Z alpha_t + epsilon
+
+        string = string + "    alpha = np.zeros(shape(k_states))\n"
+        string = string + "    for i in range(k_states):\n"
+        string = string + "        tr = 0\n"
+        string = string + "        for j in range(k_states):\n"
+        string = string + "            tr = tr + T[i, j] * p_alpha[j]\n"
+        string = string + "        alpha[i] = tr * np.random.normal(0, Q[i], 1)\n"
+
+        string = string + "    st = 0\n"
+        string = string + "    for i in range(k_states):\n"
+        string = string + "        st = st + Z[i] * alpha[i]\n"
+
+        string = string + "    y_hat = st + np.random.normal(0, H, 1)\n"
+
+        string = string + "    return prediction\n"
+
+        return string        

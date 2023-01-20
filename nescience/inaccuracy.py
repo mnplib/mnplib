@@ -10,14 +10,16 @@ with the minimum nescience principle
 @copyright: GNU GPLv3
 """
 
-from .utils import optimal_code_length
+# from .utils import optimal_code_length
+# from .utils import optimal_code_length
+from utils import optimal_code_length
 
 import numpy  as np
 
 from sklearn.base             import BaseEstimator														
 from sklearn.utils            import check_X_y
 from sklearn.utils.validation import check_is_fitted
-
+from sklearn.utils            import column_or_1d
 
 class Inaccuracy(BaseEstimator):
     """
@@ -66,7 +68,7 @@ class Inaccuracy(BaseEstimator):
         return None
     
     
-    def fit(self, X, y):
+    def fit(self, y, X=None):
         """
         Fit the inaccuracy class with a dataset
         
@@ -74,6 +76,7 @@ class Inaccuracy(BaseEstimator):
         ----------
         X : array-like, shape (n_samples, n_features)
             Sample vectors from which models have been trained.
+            None in case of unidimensional time series.
             
         y : array-like, shape (n_samples)
             Continuous and categorical variables are supported
@@ -84,7 +87,12 @@ class Inaccuracy(BaseEstimator):
         self
         """
         
-        self.X_, self.y_ = check_X_y(X, y, dtype=None)
+        if X is None:
+            self.X_ = None
+            self.y_ = column_or_1d(y)
+        else:
+            self.X_, self.y_ = check_X_y(X, y, dtype=None)
+
         self.y_ = np.array(self.y_)   
         self.len_y = optimal_code_length(x1=self.y_, numeric1=self.y_isnumeric)
         
@@ -105,8 +113,14 @@ class Inaccuracy(BaseEstimator):
         """        
         
         check_is_fitted(self)
-        
-        Pred      = model.predict(self.X_)
+
+        if self.X_ is None:
+            # There is no X
+            # So we have a unidimensional time series model
+            Pred = model.predict()
+        else:            
+            Pred = model.predict(self.X_)
+
         len_pred  = optimal_code_length(x1=Pred, numeric1=self.y_isnumeric)
         len_joint = optimal_code_length(x1=Pred, numeric1=self.y_isnumeric, x2=self.y_, numeric2=self.y_isnumeric)
         inacc     = ( len_joint - min(self.len_y, len_pred) ) / max(self.len_y, len_pred)

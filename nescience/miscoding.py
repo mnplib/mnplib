@@ -10,7 +10,8 @@ with the minimum nescience principle
 @copyright: GNU GPLv3
 """
 
-from .utils import optimal_code_length
+# from .utils import optimal_code_length
+from utils import optimal_code_length
 
 import pandas as pd
 import numpy  as np
@@ -35,6 +36,9 @@ from sklearn.tree           import DecisionTreeRegressor
 from sklearn.svm            import LinearSVR
 from sklearn.neural_network import MLPRegressor
 
+# Supported time series
+
+from  statsmodels.tsa.statespace.mlemodel import MLEModel
 
 class Miscoding(BaseEstimator):
     """
@@ -244,7 +248,9 @@ class Miscoding(BaseEstimator):
         elif isinstance(model, LinearSVR):
             subset = self._LinearSVR(model)
         elif isinstance(model, MLPRegressor):
-            subset = self._MLPRegressor(model)            
+            subset = self._MLPRegressor(model)
+        elif isinstance(model, MLEModel):
+            model_str = self._StateSpace(model)
         else:
             # Rise exception
             raise NotImplementedError('Model {!r} not supported'

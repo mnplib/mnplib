@@ -10,85 +10,147 @@ with the minimum nescience principle
 @copyright: GNU GPLv3
 """
 
+#
+# TODO List (open issues in github)
+# - Support multidimensional time series
+# - Support exogeneous parameters
+# - Miscoding gvien exogeneous parameters
+# - Better integration with the rest of the utilities (surfeit, inaccuracy, nescience, etc)
+# - Support missing values
+# - Support time series with dates (for example in predict)
+#
+
 import numpy  as np
 import pandas as pd
 
-from sklearn.base import BaseEstimator, RegressorMixin																					
+import warnings
+
+from sklearn.base             import BaseEstimator, RegressorMixin																					
 from sklearn.utils.validation import check_is_fitted
-from sklearn.utils import column_or_1d
-from sklearn.utils import check_array
+from sklearn.utils            import column_or_1d
+from sklearn.metrics          import mean_squared_error
 
-from sklearn.linear_model import LinearRegression
+import statsmodels.api as sm
 
-from nescience.utils import optimal_code_length
-from nescience.nescience import Nescience
+# TODO: Fix imports
+from surfeit    import Surfeit
+from inaccuracy import Inaccuracy
+from utils      import optimal_code_length
 
-# from .nescience import Nescience
+#
+# State space representation of a time invariant Gaussian linear structural time series model
+#
+# Given the number of hidden states (k_states) the following matrices are fitted:
+#  - Observations covariance H (scalar)
+#  - Design matrix Z (k_states)
+#  - Transition matrix T (k_states, k_states)
+#  - State covariance diagonal matrix Q (k_states, k_states)
+#
+#  Selection matrix Eta(k_states, k_states) is fixed to the identity matrix
+#
+class _StateSpace(sm.tsa.statespace.MLEModel):
 
-# Supported time series models
-# 
-# - Autoregression
-# - Moving Average
-# - Simple Exponential Smoothing
+    start_params = None
+
+    """
+    Initialization of the class _StateSpace
+        
+    Parameters
+    ----------
+    endog:    array-like, shape (n_samples), the time series values.
+    k_states: number of hidden states
+    """            
+    def __init__(self, endog, k_states):
+
+        super(_StateSpace, self).__init__(endog, k_states=k_states, k_posdef=k_states)
+
+        self.k_states = k_states
+
+        # Observations + Design + Transition + State
+        self.start_params = np.ones(1 + k_states + k_states*k_states + k_states)
+
+        # Selection matrix R is the identity matrix
+        for i in np.arange(k_states):
+            self['selection', i, i] = 1.0
+
+        # Initialize as approximate diffuse
+        # and "burn" the firsts loglikelihood values
+        self.initialize_approximate_diffuse()
+        self.loglikelihood_burn = k_states
+
+    """
+    Update the params of the model.
+    Function called internaly by MLEModel base class during optimization,
+    for example, when the fit() method is called
+    """            
+    def update(self, params, *args, **kwargs):
+
+        params = super(_StateSpace, self).update(params, *args, **kwargs)
+        
+        idx = 0
+
+        # Observations covariance H
+        self['obs_cov', 0] = params[idx]
+        idx = idx + 1
+
+        # Design matrix Z for an unidimensiona time series
+        for i in np.arange(self.k_states):
+            self['design', 0, i] = params[idx]
+            idx = idx + 1
+
+        # Transition matrix T
+        for i in np.arange(self.k_states):
+            for j in np.arange(self.k_states):
+                self['transition', i, j] = params[idx]
+                idx = idx + 1
+
+        # State covariance matrix Q is a diagonal matrix
+        for i in np.arange(self.k_states):
+            self['state_cov', 0, i] = params[idx]
+            idx = idx + 1
+
 
 class TimeSeries(BaseEstimator, RegressorMixin):
     """
     Given a time series ts = {x1, ..., xn} composed by n samples, 
-    computes a model to forecast t future values of the series.
+    computes a state space based model to forecast t future values of the series.
 
     Example of usage:
         
-        from nescience.autotimeseries import AutoTimeSeries
+        from nescience.timeseries import TimeSeries
 
         ts = ...
 
-        model = AutoTimeSeries()
+        model = TimeSeries(auto=True)
         mode.fit(ts)
-        model.predict(1)
+        model.predict(3)
     """
 
-    def __init__(self, X_type="numeric", y_type="numeric", multivariate=False, auto=True):
+
+    def __init__(self, auto=True, max_iter=100):
         """
         Initialization of the class TimeSeries
         
         Parameters
         ----------
-        X_type:       The type of the predictors, numeric, mixed or categorical,
-                      in case of having a multivariate time series
-        y_type:       The type of the time series, numeric or categorical
-        multivariate: "True" if we have other time series available as predictors
-        auto:         "True" if we want to find automatically the optimal model
+        auto     : "True" if we want to find automatically the optimal model
+        max_iter : maximum number of iterations allowed to fit parameters
+
         """        
 
-        valid_y_types = ("numeric", "categorical")
-        if y_type not in valid_y_types:
-            raise ValueError("Valid options for 'y_type' are {}. "
-                             "Got vartype={!r} instead."
-                             .format(valid_y_types, y_type))
-
-        if multivariate:
-            valid_X_types = ("numeric", "mixed", "categorical")
-            if X_type not in valid_X_types:
-                raise ValueError("Valid options for 'X_type' are {}. "
-                                 "Got vartype={!r} instead."
-                                 .format(valid_X_types, X_type))
-
-        self.X_type       = X_type
-        self.y_type       = y_type
-        self.multivariate = multivariate
-        self.auto         = auto
+        self.auto     = auto
+        self.max_iter = max_iter
 
 
-    def fit(self, y, X=None):
+    def fit(self, y):
         """
-        Initialize the time series class with data
+        Initialize the time series class with the actual data.
+        If auto is set to True, train a model.
         
         Parameters
         ----------
         y : array-like, shape (n_samples)
-            The target time series.
-        X : (optional) array-like, shape (n_samples, n_features)
-            Time series features in case of a multivariate time series problem
+            The time series.
             
         Returns
         -------
@@ -96,312 +158,186 @@ class TimeSeries(BaseEstimator, RegressorMixin):
         """
 
         self.y_ = column_or_1d(y)
-
-        if self.y_type == "numeric":
-            self.y_isnumeric = True
-        else:
-            self.y_isnumeric = False
-        
-        # Process X in case of a multivariate time series
-        if self.multivariate:
             
-            if X is None:
-                raise ValueError("X argument is mandatory in case of multivariate time series.")
-
-            if self.X_type == "mixed" or self.X_type == "categorical":
-
-                if isinstance(X, pd.DataFrame):
-                    self.X_isnumeric = [np.issubdtype(my_type, np.number) for my_type in X.dtypes]
-                    self.X_ = np.array(X)
-                else:
-                    raise ValueError("Only DataFrame is allowed for X of type 'mixed' and 'categorical."
-                                     "Got type {!r} instead."
-                                     .format(type(X)))
-                
-            else:
-                self.X_ = check_array(X)
-                self.X_isnumeric = [True] * X.shape[1]
-    
         # Auto Time Series
         if self.auto:
 
-            # Supported time series models
-            self.models_ = [
-                self.AutoRegressive,
-                self.MovingAverage,
-                self.ExponentialSmoothing
-            ]
+            self.surfeit_ = Surfeit()
+            self.surfeit_.fit(y=self.y_)
 
-            self.X_, self.y_ = self._whereIsTheX(self.y_)
+            self.inaccuracy_ = Inaccuracy()
+            self.inaccuracy_.fit(y=self.y_)
 
-            self.nescience_ = Nescience(X_type="numeric", y_type="numeric")
-            self.nescience_.fit(self.X_, self.y_)
-        
-            nsc = 1
-            self.model_ = None
-            self.viu_   = None
-
-            # Find optimal model
-            for reg in self.models_:
-            
-                (new_nsc, new_model, new_viu) = reg()
-            
-                if new_nsc < nsc: 
-                    nsc   = new_nsc
-                    self.model_ = new_model
-                    self.viu_   = new_viu
-        
-            return self
+            self.model_ = self.StateSpace(self.max_iter)
+                    
+        return self
 
 
-    """
-       Transfrom a unidimensional time series ts into a classical X, y dataset
-       
-       * size: size of the X, that is, number of attributes
-    """
-    def _whereIsTheX(self, ts, size=None):
-                
-        X = list()
-        y = list()
-
-        lts = len(ts)
-        
-        if size == None:
-            size = int(np.sqrt(lts))
-
-        for i in np.arange(lts - size):
-            X.append(ts[i:i+size])
-            y.append(ts[i+size])
-            
-        X = np.array(X)
-        y = np.array(y)
-        
-        return X, y
-    
-
-    def predict(self, X):
+    def predict(self):
         """
-        Predict class given a dataset
-    
-          * X = list([[x11, x12, x13, ...], ..., [xn1, xn2, ..., xnm]])
-    
-        Return the predicted value
+        In-sample predictions    
+                    
+        Returns
+        -------
+        Array of the same size that the original time series
+        with the predicted values.
         """
         
-        check_is_fitted(self)
+        check_is_fitted(self, "model_")
         
-        if self.viu_ is None:
-            msdX = X
-        else:
-            msdX = X[:,np.where(self.viu_)[0]]
-                
-        return self.model_.predict(msdX)
+        predict = self.model_.predict()
+
+        return predict
 
 
-    def score(self, ts):
+    def forecast(self, steps=1):
         """
-        Evaluate the performance of the current model given a test time series
-
+        Out-of-sample forecasts    
+        
         Parameters
-        ----------            
-        ts : array-like, shape (n_samples)
-            The time series as numbers.
+        ----------
+        steps : the number of steps to forecast from the end of the sample.
             
         Returns
-        -------    
-        Return one minus the mean error
+        -------
+        Array of size steps with the forecasted values.
         """
         
-        check_is_fitted(self)
+        check_is_fitted(self, "model_")
+        
+        forecast = self.model_.forecast(steps)
 
-        X, y = self._whereIsTheX(ts)
+        return forecast
+
+
+    def score(self):
+        """
+        Evaluate the performance of the current model.
+        Compute the RMSE between time series and in-sample predictions
+
+        Returns
+        -------    
+        Return root mean squared error
+        """
         
-        if self.viu_ is None:
-            msdX = X
-        else:
-            msdX = X[:,np.where(self.viu_)[0]]        
+        check_is_fitted(self, "model_")
+
+        # Higher scores means better models
+        rmse = -np.sqrt(mean_squared_error(self.y_, self.model_.predict().values))
         
-        return self.model_.score(msdX, y)
+        return rmse
 		
 		
     def get_model(self):
         """
         Get access to the private attribute model
-		
-        Return self.model_
+
+        Returns
+        -------		
+        Return the fitted model
         """
+
+        check_is_fitted(self, "model_")
+
         return self.model_
 
 		
-    def AutoRegressive(self):
+    def StateSpace(self, max_iter=100):
         """
-        Learn empirically the miscoding of the features of X
-        as a representation of y.
+        Learn empirically a state space model of k hidden states.
         
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            Sample vectors from which to compute miscoding.
-            array-like, numpy or pandas array in case of numerical types
-            pandas array in case of mixed or categorical types
-            
-        y : (optional) array-like, shape (n_samples)
-            The target values as numbers or strings.
+        max_iter : maximum number of iterations allowed to fit parameters
             
         Returns
         -------
-        self
-        """
-        
-        # Relevance of features
-        msd = self.nescience_.miscoding_.miscoding_features()
-        
-        # Variables in use
-        viu = np.zeros(self.X_.shape[1], dtype=np.int)
+        (nescience, model, None)
+        """ 
 
-        # Select the the most relevant feature
-        viu[np.argmax(msd)] = 1        
-        msd[np.where(viu)] = -1
+        #
+        # Start search with a local level model
+        #
 
-        # Evaluate the model        
-        msdX = self.X_[:,np.where(viu)[0]]        
-        model = LinearRegression()
-        model.fit(msdX, self.y_)
-        
-        prd  = model.predict(msdX)
-        nsc = self.nescience_.nescience(model, subset=viu, predictions=prd)
-        
+        k_states  = 1
+        ssm   = _StateSpace(self.y_, k_states=k_states)
+        model = ssm.fit(disp=False, maxiter=max_iter)
+
+        # Check if the model has failed to converge
+        if not model.mle_retvals['converged']:
+            raise ValueError("Model failed to converge. Please increase max_iter param.")
+
+        nsc = self._nescience(model)
+
+        #
+        # Search for the best model
+        #
+
         decreased = True
         while (decreased):
                         
             decreased = False
-            
-            new_msd = msd.copy()
-            new_viu = viu.copy()
-            
-            # Select the the most relevant feature
-            new_viu[np.argmax(new_msd)] = 1        
-            new_msd[np.where(new_viu)] = -1
+            k_states  = k_states + 1
 
-            # Evaluate the model        
-            msdX = self.X_[:,np.where(new_viu)[0]]        
-            new_model = LinearRegression()
-            new_model.fit(msdX, self.y_)        
-            
-            prd  = new_model.predict(msdX)
-            new_nsc = self.nescience_.nescience(new_model, subset=new_viu, predictions=prd)
-            
-            # Save data if nescience has been reduced                        
-            if new_nsc < nsc:                                
-                decreased = True
-                model     = new_model
-                nsc       = new_nsc
-                msd       = new_msd
-                viu       = new_viu
+            ssm       = _StateSpace(self.y_, k_states=k_states)
+            new_model = ssm.fit(disp=False, maxiter=max_iter)
+
+            # If the model failed to converge stop the search
+            # but inform the user about the problem
+            if not new_model.mle_retvals['converged']:
+                warnings.warn("Search stopped because model failed to converge."
+                              " Please consider increasing max_iter param.")
+                break
+
+            new_nsc = self._nescience(new_model)
         
-        return (nsc, model, viu)
-
-
-    def MovingAverage(self):
-        
-        # Variables in use
-        viu = np.zeros(self.X_.shape[1], dtype=np.int)
-
-        # Select the t-1 feature
-        viu[-1] = 1        
-
-        # Evaluate the model        
-        msdX = self.X_[:,np.where(viu)[0]]        
-        model = LinearRegression()
-        model.coef_ = np.array([1])
-        model.intercept_ = np.array([0])
-        
-        prd  = model.predict(msdX)
-        nsc = self.nescience_.nescience(model, subset=viu, predictions=prd)
-        
-        for i in np.arange(2, self.X_.shape[1] - 1):
-            
-            new_viu = viu.copy()
-            
-            # Select the the most relevant feature
-            new_viu[-i] = 1        
-
-            # Evaluate the model        
-            msdX = self.X_[:,np.where(new_viu)[0]]
-            new_model = LinearRegression()
-            new_model.coef_ = np.repeat([1/i], i)
-            new_model.intercept_ = np.array([0])
-
-            prd  = new_model.predict(msdX)
-            new_nsc = self.nescience_.nescience(new_model, subset=new_viu, predictions=prd)
-                        
-            # Save data if nescience has been reduced                        
+            # Stop if nescience increases
             if new_nsc > nsc:
                 break
-              
+
+            # Save data since nescience has decreased                        
             model     = new_model
             nsc       = new_nsc
-            viu       = new_viu
         
-        return (nsc, model, viu)
+        return model
 
 
-    def ExponentialSmoothing(self, alpha=0.2):
-        """
-        Learn empirically the miscoding of the features of X
-        as a representation of y.
+    """
+    Compute the nescience of a univariate time series based model
         
-        Parameters
-        ----------
-        alpha : decay factor
+    Parameters
+    ----------
+    model : a trained time series model
+                    
+    Returns
+    -------
+    Return the nescience (float)
+    """
+
+    def _nescience(self, model):
+        
+        check_is_fitted(self)
+
+        inaccuracy = self.inaccuracy_.inaccuracy_model(model)
+        surfeit    = self.surfeit_.surfeit_model(model)
+
+        # Avoid dividing by zero
+        
+        if surfeit == 0:
+            surfeit = 10e-6
+    
+        if inaccuracy == 0:
+            inaccuracy = 10e-6
             
-        Returns
-        -------
-        (nescience, model, variables_in_use)
-        """
+        # TODO: Think about this problem
+        if surfeit < inaccuracy:
+            # The model is still too small to use surfeit
+            surfeit = 1
 
-        alpha = 0.2
+        # Compute the nescience using an harmonic mean
+        nescience = 2 / ( (1/inaccuracy) + (1/surfeit))
         
-        # Variables in use
-        viu = np.zeros(self.X_.shape[1], dtype=np.int)
-
-        # Select the t-1 feature
-        viu[-1] = 1        
-
-        # Evaluate the model        
-        msdX = self.X_[:,np.where(viu)[0]]        
-        model = LinearRegression()
-        model.coef_ = np.array([1])
-        model.intercept_ = np.array([0])
-        
-        prd  = model.predict(msdX)
-        nsc = self.nescience_.nescience(model, subset=viu, predictions=prd)
-        
-        for i in np.arange(2, self.X_.shape[1] - 1):
-            
-            new_viu = viu.copy()
-            
-            # Select the the most relevant feature
-            new_viu[-i] = 1        
-
-            # Evaluate the model        
-            msdX = self.X_[:,np.where(new_viu)[0]]
-            new_model = LinearRegression()
-            new_model.coef_ = np.repeat([(1-alpha)**i], i)
-            new_model.intercept_ = np.array([0])
-
-            prd  = new_model.predict(msdX)
-            new_nsc = self.nescience_.nescience(new_model, subset=new_viu, predictions=prd)
-                        
-            # Save data if nescience has been reduced                        
-            if new_nsc > nsc:
-                break
-              
-            model     = new_model
-            nsc       = new_nsc
-            viu       = new_viu
-        
-        return (nsc, model, viu)
+        return nescience       
 
 
     def auto_miscoding(self, min_lag=1, max_lag=None, mode='adjusted'):
@@ -565,3 +501,12 @@ class TimeSeries(BaseEstimator, RegressorMixin):
                              "Got mode={!r} instead."
                             .format(valid_modes, mode))
 
+# from datetime import datetime
+
+# passengers = pd.read_stata("../../StateSpace/air2.dta")
+# passengers.index = pd.date_range(start=datetime(passengers.time[0], 1, 1), periods=len(passengers), freq='MS')
+
+# data  = passengers["air"]
+
+# mod = TimeSeries(auto=True)
+# mod.fit(data)
