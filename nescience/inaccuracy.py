@@ -12,7 +12,7 @@ with the minimum nescience principle
 
 # from .utils import optimal_code_length
 # from .utils import optimal_code_length
-from utils import optimal_code_length
+from .utils import optimal_code_length
 
 import numpy  as np
 
@@ -74,14 +74,14 @@ class Inaccuracy(BaseEstimator):
         
         Parameters
         ----------
-        X : array-like, shape (n_samples, n_features)
-            Sample vectors from which models have been trained.
-            None in case of unidimensional time series.
-            
         y : array-like, shape (n_samples)
             Continuous and categorical variables are supported
             if the trained model support them.
-            
+
+        X : array-like, shape (n_samples, n_features)
+            Sample vectors from which models have been trained.
+            None in case of unidimensional time series.
+                        
         Returns
         -------
         self
