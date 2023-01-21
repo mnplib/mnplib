@@ -11,11 +11,8 @@ with the minimum nescience principle
 @version:   0.8
 """
 
-# from .utils import optimal_code_length
-# from .utils import discretize_vector
-
-from utils import optimal_code_length
-from utils import discretize_vector
+from .utils import optimal_code_length
+from .utils import discretize_vector
 
 # TODO: fix discretize_vector(values, n_bins=bins)
 
@@ -80,7 +77,7 @@ class Surfeit(BaseEstimator):
         if compressor not in valid_compressors:
             raise ValueError("Valid options for 'compressor' are {}. "
                              "Got vartype={!r} instead."
-                             .format(valid_compressor, compressor))
+                             .format(valid_compressors, compressor))
 
         self.compressor  = compressor
         
