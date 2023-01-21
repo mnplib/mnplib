@@ -10,8 +10,7 @@ with the minimum nescience principle
 @copyright: GNU GPLv3
 """
 
-# from .utils import optimal_code_length
-from utils import optimal_code_length
+from .utils import optimal_code_length
 
 import pandas as pd
 import numpy  as np

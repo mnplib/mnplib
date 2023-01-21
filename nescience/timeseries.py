@@ -12,10 +12,8 @@ with the minimum nescience principle
 
 #
 # TODO List (open issues in github)
-# - Support multidimensional time series
 # - Support exogeneous parameters
 # - Miscoding gvien exogeneous parameters
-# - Better integration with the rest of the utilities (surfeit, inaccuracy, nescience, etc)
 # - Support missing values
 # - Support time series with dates (for example in predict)
 #
@@ -29,13 +27,13 @@ from sklearn.base             import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_is_fitted
 from sklearn.utils            import column_or_1d
 from sklearn.metrics          import mean_squared_error
+from sklearn.utils            import check_array
 
 import statsmodels.api as sm
 
-# TODO: Fix imports
-from surfeit    import Surfeit
-from inaccuracy import Inaccuracy
-from utils      import optimal_code_length
+from .surfeit    import Surfeit
+from .inaccuracy import Inaccuracy
+from .utils      import optimal_code_length
 
 #
 # State space representation of a time invariant Gaussian linear structural time series model
@@ -127,22 +125,42 @@ class TimeSeries(BaseEstimator, RegressorMixin):
     """
 
 
-    def __init__(self, auto=True, max_iter=100):
+    def __init__(self, y_type="numeric", X_type=None, multivariate=False, auto=True, max_iter=100):
         """
         Initialization of the class TimeSeries
         
         Parameters
         ----------
-        auto     : "True" if we want to find automatically the optimal model
-        max_iter : maximum number of iterations allowed to fit parameters
-
+        y_type:       The type of the time series, numeric or categorical
+        X_type:       The type of the predictors, numeric, mixed or categorical,
+                      in case of having a multivariate time series
+                      None if the time series is univariate
+        multivariate: "True" if we have other time series available as predictors
+        auto:         "True" if we want to find automatically the optimal model
+        max_iter:     maximum number of iterations allowed to fit parameters
         """        
 
-        self.auto     = auto
-        self.max_iter = max_iter
+        valid_y_types = ("numeric", "categorical")
+        if y_type not in valid_y_types:
+            raise ValueError("Valid options for 'y_type' are {}. "
+                             "Got vartype={!r} instead."
+                             .format(valid_y_types, y_type))
+
+        if multivariate:
+            valid_X_types = ("numeric", "mixed", "categorical")
+            if X_type not in valid_X_types:
+                raise ValueError("Valid options for 'X_type' are {}. "
+                                 "Got vartype={!r} instead."
+                                 .format(valid_X_types, X_type))
+
+        self.y_type       = y_type
+        self.X_type       = X_type
+        self.multivariate = multivariate
+        self.auto         = auto
+        self.max_iter     = max_iter
 
 
-    def fit(self, y):
+    def fit(self, y, X=None):
         """
         Initialize the time series class with the actual data.
         If auto is set to True, train a model.
@@ -151,6 +169,8 @@ class TimeSeries(BaseEstimator, RegressorMixin):
         ----------
         y : array-like, shape (n_samples)
             The time series.
+        X : (optional) array-like, shape (n_samples, n_features)
+            Time series features in case of a multivariate time series problem
             
         Returns
         -------
@@ -158,7 +178,32 @@ class TimeSeries(BaseEstimator, RegressorMixin):
         """
 
         self.y_ = column_or_1d(y)
+
+        if self.y_type == "numeric":
+            self.y_isnumeric = True
+        else:
+            self.y_isnumeric = False
+        
+        # Process X in case of a multivariate time series
+        if self.multivariate:
             
+            if X is None:
+                raise ValueError("X argument is mandatory in case of multivariate time series.")
+
+            if self.X_type == "mixed" or self.X_type == "categorical":
+
+                if isinstance(X, pd.DataFrame):
+                    self.X_isnumeric = [np.issubdtype(my_type, np.number) for my_type in X.dtypes]
+                    self.X_ = np.array(X)
+                else:
+                    raise ValueError("Only DataFrame is allowed for X of type 'mixed' and 'categorical."
+                                     "Got type {!r} instead."
+                                     .format(type(X)))
+                
+            else:
+                self.X_ = check_array(X)
+                self.X_isnumeric = [True] * X.shape[1]
+
         # Auto Time Series
         if self.auto:
 
@@ -223,11 +268,17 @@ class TimeSeries(BaseEstimator, RegressorMixin):
         check_is_fitted(self, "model_")
 
         # Higher scores means better models
-        rmse = -np.sqrt(mean_squared_error(self.y_, self.model_.predict().values))
-        
-        return rmse
+        mean = np.mean(self.y_)
+        u = mean_squared_error(self.y_, self.model_.predict())
+        v = np.mean([(self.y_[i] - mean)**2 for i in range(0, len(self.y_)-1)])
+        score = 1 - u/v
+
+        return score
+
+        # rmse = -np.sqrt(mean_squared_error(self.y_, self.model_.predict()))
+        # return rmse
 		
-		
+
     def get_model(self):
         """
         Get access to the private attribute model
@@ -313,7 +364,7 @@ class TimeSeries(BaseEstimator, RegressorMixin):
     -------
     Return the nescience (float)
     """
-
+    # TODO: Should use the generic class
     def _nescience(self, model):
         
         check_is_fitted(self)
