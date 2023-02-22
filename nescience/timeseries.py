@@ -125,20 +125,25 @@ class TimeSeries(BaseEstimator, RegressorMixin):
     """
 
 
-    def __init__(self, y_type="numeric", X_type=None, multivariate=False, auto=True, max_iter=100):
+    def __init__(self, X_type="numeric", y_type="numeric", auto=True, max_iter=100):
         """
         Initialization of the class TimeSeries
         
         Parameters
         ----------
-        y_type:       The type of the time series, numeric or categorical
         X_type:       The type of the predictors, numeric, mixed or categorical,
                       in case of having a multivariate time series
                       None if the time series is univariate
-        multivariate: "True" if we have other time series available as predictors
+        y_type:       The type of the time series, numeric or categorical
         auto:         "True" if we want to find automatically the optimal model
         max_iter:     maximum number of iterations allowed to fit parameters
         """        
+
+        valid_X_types = ("numeric", "mixed", "categorical", None)
+        if X_type not in valid_X_types:
+            raise ValueError("Valid options for 'X_type' are {}. "
+                             "Got vartype={!r} instead."
+                             .format(valid_X_types, X_type))
 
         valid_y_types = ("numeric", "categorical")
         if y_type not in valid_y_types:
@@ -146,49 +151,31 @@ class TimeSeries(BaseEstimator, RegressorMixin):
                              "Got vartype={!r} instead."
                              .format(valid_y_types, y_type))
 
-        if multivariate:
-            valid_X_types = ("numeric", "mixed", "categorical")
-            if X_type not in valid_X_types:
-                raise ValueError("Valid options for 'X_type' are {}. "
-                                 "Got vartype={!r} instead."
-                                 .format(valid_X_types, X_type))
-
-        self.y_type       = y_type
         self.X_type       = X_type
-        self.multivariate = multivariate
+        self.y_type       = y_type
         self.auto         = auto
         self.max_iter     = max_iter
 
 
-    def fit(self, y, X=None):
+    def fit(self, X, y):
         """
         Initialize the time series class with the actual data.
         If auto is set to True, train a model.
         
         Parameters
         ----------
-        y : array-like, shape (n_samples)
-            The time series.
         X : (optional) array-like, shape (n_samples, n_features)
             Time series features in case of a multivariate time series problem
+        y : array-like, shape (n_samples)
+            The time series.
             
         Returns
         -------
         self
         """
 
-        self.y_ = column_or_1d(y)
-
-        if self.y_type == "numeric":
-            self.y_isnumeric = True
-        else:
-            self.y_isnumeric = False
-        
         # Process X in case of a multivariate time series
-        if self.multivariate:
-            
-            if X is None:
-                raise ValueError("X argument is mandatory in case of multivariate time series.")
+        if X is not None:
 
             if self.X_type == "mixed" or self.X_type == "categorical":
 
@@ -204,6 +191,16 @@ class TimeSeries(BaseEstimator, RegressorMixin):
                 self.X_ = check_array(X)
                 self.X_isnumeric = [True] * X.shape[1]
 
+        else:
+            self.X_ = None
+
+        # Process y
+        self.y_ = column_or_1d(y)
+        if self.y_type == "numeric":
+            self.y_isnumeric = True
+        else:
+            self.y_isnumeric = False
+        
         # Auto Time Series
         if self.auto:
 
@@ -211,7 +208,7 @@ class TimeSeries(BaseEstimator, RegressorMixin):
             self.surfeit_.fit(y=self.y_)
 
             self.inaccuracy_ = Inaccuracy()
-            self.inaccuracy_.fit(y=self.y_)
+            self.inaccuracy_.fit(X=self.X_, y=self.y_)
 
             self.model_ = self.StateSpace(self.max_iter)
                     

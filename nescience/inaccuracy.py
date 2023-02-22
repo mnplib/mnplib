@@ -68,19 +68,18 @@ class Inaccuracy(BaseEstimator):
         return None
     
     
-    def fit(self, y, X=None):
+    def fit(self, X, y):
         """
         Fit the inaccuracy class with a dataset
         
         Parameters
         ----------
-        y : array-like, shape (n_samples)
-            Continuous and categorical variables are supported
-            if the trained model support them.
-
         X : array-like, shape (n_samples, n_features)
             Sample vectors from which models have been trained.
             None in case of unidimensional time series.
+        y : array-like, shape (n_samples)
+            Continuous and categorical variables are supported
+            if the trained model support them.
                         
         Returns
         -------
