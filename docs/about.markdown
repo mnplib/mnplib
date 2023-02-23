@@ -1,18 +1,74 @@
 ---
 layout: page
 title: About
-permalink: /about/
+permalink: /docs/about/
 ---
 
-This is the base Jekyll theme. You can find out more info about customizing your Jekyll theme, as well as basic Jekyll usage documentation at [jekyllrb.com](https://jekyllrb.com/)
+# Machine Learning
+## with the Minimum Nescience Principle
 
-You can find the source code for Minima at GitHub:
-[jekyll][jekyll-organization] /
-[minima](https://github.com/jekyll/minima)
+`nescience` is a highly efficient open source library for machine learning based on Python and built on top of [scikit-learn](https://scikit-learn.org/stable/). The library is based on the [_minimum nescience principle_](http://www.mathematicsunknown.com/), a novel mathematical theory that measures how well we understand a problem given a representation and a description. In case of machine learning, representations are based on datasets, and descriptions are based on mathematical models.
 
-You can find the source code for Jekyll at GitHub:
-[jekyll][jekyll-organization] /
-[jekyll](https://github.com/jekyll/jekyll)
+The minimum nescience principle allow us to automate the common tasks performed by data scientists, from feature selection, model selection, or hyperparameters optimization.
+
+`nescience` can dramatically increase the productivity of the data scientist, reducing the time to analyze and model a dataset. With `nescience` we can have results in very short time, without decreasing the accuracy (in fact, we usually have a better accuracy). `Nescience` is fast because:
+
+* It does not requires cross-validation
+* It use a greedy search for hyperparameters
+* It is not based on ensembles of models
+
+## The Library
+
+The `nescience` library is composed of the following classes:
+
+* `Miscoding` measures the quality of the dataset we are using to represent our problem.
+* `Inaccuracy` measures the error made by the model we have trained.
+* `Surfeit` measures how (unnecessarily) complex is the model we have identified.
+
+All these metrics are combined into a single quantity, called `Nescience`, as a measure of how well we understand our problem given a dataset and a model. `Nescience` allow us to evaluate and compare models from different model families.
+
+The `nescience` library also contains the following utilities:
+
+* `Anomalies` for the identification and classification of anomalies.
+* `Causal` for root-cause analysis.
+
+Besides to these classes, the `nescience` library provide the following automated machine-learning tools:
+
+* `Regression` for automated regression problems.
+* `Classification` for automated classification problems.
+* `TimeSeries` for time series based analysis and forecasting.
+
+## Installation
+
+The `nescience` library can be installed using the standard `pip` installer:
+
+```python
+pip install nescience
+```
+
+The following code constains a simple example of how to use the auto-classifer module of the library:
+
+```python
+rom sklearn.datasets import load_breast_cancer
+from nescience.classifier import Classifier
+
+X, y = load_breast_cancer(return_X_y=True)
+
+model = Classifier()
+model.fit(X, y)
+model.score(X, y)
+```
 
 
-[jekyll-organization]: https://github.com/jekyll
+## User Guide
+
+This user guide contains the following sections:
+
+* [Feature Selection](https://github.com/rleiva/fastautoml/wiki/Feature-Selection)
+* [Model Inaccuacy](https://github.com/rleiva/fastautoml/wiki/Model-Inaccuracy)
+* [Model Complexity](https://github.com/rleiva/fastautoml/wiki/Model-Complexity)
+* [Hyperparameters Selection](https://github.com/rleiva/fastautoml/wiki/Hyperparameters-Selection)
+* [Auto Classification](https://github.com/rleiva/fastautoml/wiki/Auto-Classification)
+* [Auto Regression](https://github.com/rleiva/fastautoml/wiki/Auto-Regression)
+* [Time Series](https://github.com/rleiva/fastautoml/wiki/Time-Series-Analysis)
+* [Anomalies Detection](https://github.com/rleiva/nescience/wiki/Anomalies-Detection)
