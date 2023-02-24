@@ -65,7 +65,7 @@ model.score(X, y)
 
 This user guide contains the following sections:
 
-* [Feature Selection](https://github.com/rleiva/fastautoml/wiki/Feature-Selection)
+* [Feature Selection](https://mnplib.github.io/mnplib/docs/user_guide/feature_selection)
 * [Model Inaccuacy](https://github.com/rleiva/fastautoml/wiki/Model-Inaccuracy)
 * [Model Complexity](https://github.com/rleiva/fastautoml/wiki/Model-Complexity)
 * [Hyperparameters Selection](https://github.com/rleiva/fastautoml/wiki/Hyperparameters-Selection)
